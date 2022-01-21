@@ -1,9 +1,8 @@
 using System.Threading;
-using System.Security.Cryptography;
 
 namespace BlittableType
 {
-    public class FileHashCalculator : IDisposable
+    internal class FileHashCalculator : IDisposable
     {
         private readonly string _filePath;
         private readonly int _blockSize;
@@ -11,10 +10,10 @@ namespace BlittableType
         private List<Thread> _calcThreads;
         private SharedFile _file;
 
-        private int _blockNum;
         private int _blocks;
-        private readonly object _syncRoot = new object();
         private CancellationTokenSource _cancelTokenSource;
+
+        private readonly IProgress<string> _reporter = new ConsoleReporter();
         
         public FileHashCalculator(string filePath, int blockSize)
         {
@@ -26,8 +25,6 @@ namespace BlittableType
 
             _threadCount = Math.Min(_blocks, Environment.ProcessorCount);
             _calcThreads = new List<Thread>(_threadCount);
-
-            Console.CancelKeyPress += new ConsoleCancelEventHandler(OnCancelKeyPress);
         }
 
         ~FileHashCalculator()
@@ -35,22 +32,17 @@ namespace BlittableType
             Dispose();
         }
 
-        private void OnCancelKeyPress(object? sender, ConsoleCancelEventArgs e)
-        {
-            Stop();
-            Console.WriteLine("Operation has been cancelled.");
-        }
-
         public void Start()
         {
             ReopenFile();
-            
+
             _calcThreads = new List<Thread>();
             _cancelTokenSource = new CancellationTokenSource();
+            var calculator = new BlockHashCalculator(_file, _blockSize, _reporter);
 
             for (int i = 0; i < _threadCount; i++)
-            {
-                var thread = new Thread(new ParameterizedThreadStart(DoCalculation));
+            {                
+                var thread = new Thread(new ParameterizedThreadStart(calculator.DoCalculation));
                 _calcThreads.Add(thread);
                 thread.Start(_cancelTokenSource.Token);
             }
@@ -70,49 +62,6 @@ namespace BlittableType
                 thread.Join(5000);
 
             _file?.Dispose();
-        }
-
-        private void DoCalculation(object cancellationTokenObj)
-        {
-            var cancellationToken = (CancellationToken)cancellationTokenObj;
-            byte[] block = new byte[_blockSize];
-            long blockNum;
-            int bytesRead;
-                        
-            using (var hashFunc = SHA256.Create())
-            {    
-                while(!cancellationToken.IsCancellationRequested)
-                {
-                    lock(_syncRoot)
-                    {
-                        blockNum = ++_blockNum;
-                    }
-
-                    // Read a block of data
-                    bytesRead = _file.Read(block);
-
-                    if (bytesRead == 0)
-                        break;
-
-                    // Process last block
-                    
-                    if (bytesRead < _blockSize)
-                    {
-                        var lastBlock = new byte[bytesRead];
-                        Buffer.BlockCopy(block, 0, lastBlock, 0, bytesRead);
-                        CalcAndDisplayHash(hashFunc, lastBlock, blockNum);
-                        break;
-                    }
-
-                    CalcAndDisplayHash(hashFunc, block, blockNum);
-                }
-            }
-        }
-
-        private void CalcAndDisplayHash(HashAlgorithm hashFunc, byte[] block, long blockNum)
-        {
-            var hash = hashFunc.ComputeHash(block);
-            Console.WriteLine($"[{Thread.CurrentThread.ManagedThreadId}] {blockNum}:{BitConverter.ToString(hash)}");
         }
 
         private void ReopenFile()

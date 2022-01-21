@@ -4,6 +4,8 @@ namespace BlittableType
 {
     class Program
     {
+        private static FileHashCalculator _fileHashCalculator;
+
         static void Main(string[] args)
         {
             if (args.Length < 2)
@@ -26,15 +28,23 @@ namespace BlittableType
                 return;
             }
 
-            using (var fileHashCalculator = new FileHashCalculator(filePath, blockSize))
+            Console.CancelKeyPress += new ConsoleCancelEventHandler(OnCancelKeyPress);
+
+            using (_fileHashCalculator = new FileHashCalculator(filePath, blockSize))
             {
-                fileHashCalculator.Start();
+                _fileHashCalculator.Start();
             }
         }
 
         private static void PrintUsage()
         {
             Console.WriteLine("usage: dotnet file-hash.dll <FILE_PATH> <BLOCK_SIZE_BYTES>");
+        }
+
+        private static void OnCancelKeyPress(object? sender, ConsoleCancelEventArgs e)
+        {
+            _fileHashCalculator?.Stop();
+            Console.WriteLine("Operation has been cancelled.");
         }
     }
 }

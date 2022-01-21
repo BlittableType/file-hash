@@ -2,9 +2,10 @@
 
 namespace BlittableType
 {
-    public class SharedFile : IDisposable
+    internal class SharedFile : IDisposable
     {
         private readonly FileStream _file;
+        private long _reads;
 
         public SharedFile(string filePath)
         {
@@ -16,11 +17,13 @@ namespace BlittableType
             Dispose();
         }
 
-        public int Read(byte[] buffer)
+        public ReadFileResult Read(byte[] buffer)
         {
             lock(_file)
             {
-                return _file.Read(buffer, 0, buffer.Length);
+                return new ReadFileResult(
+                    bytesRead: _file.Read(buffer, 0, buffer.Length),
+                    reads: ++_reads);
             }
         }
         
