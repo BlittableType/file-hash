@@ -1,3 +1,7 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Threading;
 
 namespace BlittableType
@@ -44,12 +48,14 @@ namespace BlittableType
             {                
                 var thread = new Thread(new ParameterizedThreadStart(calculator.DoCalculation));
                 _calcThreads.Add(thread);
-                thread.Start(_cancelTokenSource.Token);
             }
 
             Console.WriteLine($"Threads: {_threadCount} ({String.Join(", ", _calcThreads.Select(t => t.ManagedThreadId))})");
             Console.WriteLine($"Blocks: {_blocks}");
 
+            foreach (var thread in _calcThreads)
+                thread.Start(_cancelTokenSource.Token);
+            
             foreach (var thread in _calcThreads)
                 thread.Join();
         }
