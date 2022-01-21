@@ -9,8 +9,8 @@ namespace BlittableType
         private readonly int _blockSize;
         private readonly int _threadCount;
         private List<Thread> _calcThreads;
+        private SharedFile _file;
 
-        private long _curPos;
         private int _blockNum;
         private int _blocks;
         private readonly object _syncRoot = new object();
@@ -20,7 +20,6 @@ namespace BlittableType
         {
             _filePath = filePath;
             _blockSize = blockSize;
-            _curPos = -blockSize;
             
             var file = new FileInfo(_filePath);
             _blocks = (int)Math.Ceiling((decimal)file.Length / _blockSize);
@@ -44,6 +43,8 @@ namespace BlittableType
 
         public void Start()
         {
+            ReopenFile();
+            
             _calcThreads = new List<Thread>();
             _cancelTokenSource = new CancellationTokenSource();
 
@@ -67,48 +68,43 @@ namespace BlittableType
             
             foreach (var thread in _calcThreads)
                 thread.Join(5000);
+
+            _file?.Dispose();
         }
 
         private void DoCalculation(object cancellationTokenObj)
         {
             var cancellationToken = (CancellationToken)cancellationTokenObj;
             byte[] block = new byte[_blockSize];
-            long curPos;
             long blockNum;
             int bytesRead;
                         
-            using (var file = new FileStream(_filePath, FileMode.Open, FileAccess.Read))
-            {
-                using (var hashFunc = SHA256.Create())
-                {    
-                    while(!cancellationToken.IsCancellationRequested)
+            using (var hashFunc = SHA256.Create())
+            {    
+                while(!cancellationToken.IsCancellationRequested)
+                {
+                    lock(_syncRoot)
                     {
-                        lock(_syncRoot)
-                        {
-                            curPos = _curPos += _blockSize;
-                            blockNum = ++_blockNum;
-                        }
-
-                        // Read a block of data
-
-                        file.Seek(curPos, SeekOrigin.Begin);                    
-                        bytesRead = file.Read(block, 0, _blockSize);
-
-                        if (bytesRead == 0)
-                            break;
-
-                        // Process last block
-                        
-                        if (bytesRead < _blockSize)
-                        {
-                            var lastBlock = new byte[bytesRead];
-                            Buffer.BlockCopy(block, 0, lastBlock, 0, bytesRead);
-                            CalcAndDisplayHash(hashFunc, lastBlock, blockNum);
-                            break;
-                        }
-
-                        CalcAndDisplayHash(hashFunc, block, blockNum);
+                        blockNum = ++_blockNum;
                     }
+
+                    // Read a block of data
+                    bytesRead = _file.Read(block);
+
+                    if (bytesRead == 0)
+                        break;
+
+                    // Process last block
+                    
+                    if (bytesRead < _blockSize)
+                    {
+                        var lastBlock = new byte[bytesRead];
+                        Buffer.BlockCopy(block, 0, lastBlock, 0, bytesRead);
+                        CalcAndDisplayHash(hashFunc, lastBlock, blockNum);
+                        break;
+                    }
+
+                    CalcAndDisplayHash(hashFunc, block, blockNum);
                 }
             }
         }
@@ -117,6 +113,12 @@ namespace BlittableType
         {
             var hash = hashFunc.ComputeHash(block);
             Console.WriteLine($"[{Thread.CurrentThread.ManagedThreadId}] {blockNum}:{BitConverter.ToString(hash)}");
+        }
+
+        private void ReopenFile()
+        {
+            _file?.Dispose();
+            _file = new SharedFile(_filePath);
         }
 
         private bool _isDisposed;
